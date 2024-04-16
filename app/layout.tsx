@@ -25,7 +25,7 @@ export default function RootLayout({
     <ClerkProvider>
     <html lang="en" suppressContentEditableWarning>
       <body className={cn(font.className,
-      "bg-white dark:bg-[#313338]"
+      "dark:bg-gradient-to-l from-transparent to-gray-400 bg-[#0c161d] "
         )}>
         <ThemeProvider
         attribute="class"
