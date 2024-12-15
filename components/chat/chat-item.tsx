@@ -1,266 +1,125 @@
 "use client";
 
 import * as z from "zod";
-import axios from "axios";
-import qs from "query-string";
-import {useForm} from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Member, MemberRole, Profile } from "@prisma/client";
+import { useState } from "react";
+import { EmojiPicker } from "@/components/emoji-picker";
 import { UserAvatar } from "@/components/user-avatar";
-import { ActionTooltip } from "@/components/action-tooltip";
-import { Edit, FileIcon, ShieldAlert, ShieldCheck, Trash } from "lucide-react";
-import Image from "next/image";
-import { useRouter, useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { cn } from "@/lib/utils";
-import {
-    Form,
-    FormControl,
-    FormField,
-    FormItem,
-} from "@/components/ui/form";
-import {Input} from "@/components/ui/input"
-import {Button} from "@/components/ui/button"
 import { useModal } from "@/hooks/use-modal-store";
+import { Button } from "@/components/ui/button";
 
-interface ChatItemProps {
-    id: string;
-    content: string;
-    member: Member & {
-        profile: Profile;
-    };
-    timestamp: string;
-    fileUrl: string | null;
-    deleted: boolean;
-    currentMember: Member;
-    isUpdated: boolean;
-    socketUrl: string;
-    socketQuery: Record<string, string>;
-};
-
-const roleIconMap = {
-    "GUEST": null,
-    "MODERATOR": <ShieldCheck className="h-4 w-4 ml-2 text-indigo-500" />,
-    "ADMIN": <ShieldAlert className="h-4 w-4 ml-2 text-rose-500" />
+interface Reaction {
+  emoji: string;
+  users: string[]; // Track users who added this reaction
 }
 
-const formSchema = z.object({
-    content: z.string().min(1),
-});
-
 const ChatItem = ({
-    id,
-    content,
-    member,
-    timestamp,
-    fileUrl,
-    deleted,
-    currentMember,
-    isUpdated,
-    socketUrl,
-    socketQuery,
+  id,
+  content,
+  member,
+  timestamp,
+  fileUrl,
+  deleted,
+  currentMember,
+  isUpdated,
+  socketUrl,
+  socketQuery,
 }: ChatItemProps) => {
-    const [isEditing, setIsEditing] = useState(false);
-    const { onOpen } = useModal();
-    const params = useParams();
-    const router = useRouter();
+  const [reactions, setReactions] = useState<Reaction[]>([]);
+  const { onOpen } = useModal();
 
-    const onMemberClick = () => {
-        if(member.id === currentMember.id) {
-            return;
+  // Handle Reaction Add/Remove
+  const handleReaction = (emoji: string) => {
+    const existingReactionIndex = reactions.findIndex(r => r.emoji === emoji);
+
+    if (existingReactionIndex !== -1) {
+      // If reaction exists
+      const updatedReactions = [...reactions];
+      const userIndex = updatedReactions[existingReactionIndex].users.indexOf(currentMember.id);
+
+      if (userIndex !== -1) {
+        // Remove user's reaction if already exists
+        updatedReactions[existingReactionIndex].users.splice(userIndex, 1);
+        
+        // Remove the entire reaction if no users left
+        if (updatedReactions[existingReactionIndex].users.length === 0) {
+          updatedReactions.splice(existingReactionIndex, 1);
         }
-        router.push(`/servers/${params?.serverId}/conversation/${member.id}`);
+      } else {
+        // Add current user to the reaction
+        updatedReactions[existingReactionIndex].users.push(currentMember.id);
+      }
 
+      setReactions(updatedReactions);
+    } else {
+      // Add new reaction
+      setReactions([
+        ...reactions, 
+        { emoji, users: [currentMember.id] }
+      ]);
     }
+  };
 
-    useEffect(() => {
-        const handleKeyDown = (event: any) => {
-            if (event.key === "Escape" || event.keyCode === 27) {
-                setIsEditing(false);
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown)
-
-        return () => window.removeEventListener("keydown", handleKeyDown);
-
-    }, []);
-
-    const form = useForm<z.infer<typeof formSchema>>({
-        resolver: zodResolver(formSchema),
-        defaultValues: {
-            content: content
-        }
-    });
-
-    const isLoading = form.formState.isSubmitting;
-
-    const onSubmit = async (values: z.infer<typeof formSchema>) => {
-        try{
-            const url = qs.stringifyUrl({
-                url: `${socketUrl}/${id}`,
-                query: socketQuery,
-            });
-
-            await axios.patch(url,values);
-
-            form.reset();
-            setIsEditing(false);
-        }
-        catch (error){
-            console.log(error);
-        }
-    }
-
-    useEffect(() => {
-        form.reset({
-            content: content,
-        })
-    },[content,form]);
-
-    const fileType = fileUrl?.split(".").pop();
-
-
-    const isAdmin = currentMember.role === MemberRole.ADMIN;
-    const isModerator = currentMember.role === MemberRole.MODERATOR;
-    const isOwner = currentMember.id === member.id;
-    const canDeleteMessage = !deleted && (isAdmin || isModerator || isOwner);
-    const canEditMessage = !deleted && isOwner && !fileUrl;
-    const isPDF = fileType === "pdf" && fileUrl;
-    const isImage = !isPDF && fileUrl;
+  // Function to format and render message content with line breaks
+  const formatMessageContent = (content: string) => {
+    return content.split("\n").map((str, index) => (
+      <span key={index}>
+        {str}
+        <br />
+      </span>
+    ));
+  };
 
   return (
     <div className="relative group flex items-center hover:bg-black/5 p-4 transition w-full"> 
-        <div className="group flex gap-x-2 items-start w-full">
-            <div onClick={onMemberClick} className="cursor-pointer hover:drop-shadow-md transition">
-                <UserAvatar src={member.profile.imageUrl ?? undefined} />
-            </div>
-            <div className="flex flex-col w-full">
-                <div className="flex items-center gap-x-2">
-                    <div className="flex items-center">
-                        <p onClick={onMemberClick} className="font-semibold text-sm hover:underline cursor-pointer">
-                            {member.profile.name}
-                        </p>
-                        <ActionTooltip label={member.role}>
-                            <p>
-                                {roleIconMap[member.role]}
-                            </p>
-                        </ActionTooltip>
-                    </div>
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                        {timestamp}
-                    </span>
-                </div>
-                {isImage && (
-                    <a href={fileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="relative aspect-square rounded-md mt-2 overflow-hidden border flex
-                    items-center bg-secondary h-48 w-48
-                    "
-                    >
-                        <Image
-                        src={fileUrl}
-                        alt={content}
-                        fill
-                        className="object-cover"
-                        />
-                    </a>
-                )}
-                {isPDF && (
-                     <div className="relative flex items-center p-2 mt-2 rounded-md bg-background/10">
-                     <FileIcon 
-                     className="h-10 w-10 fill-indigo-200
-                     stroke-indigo-400
-                     "
-                     />
-                     <a
-                     href={fileUrl}
-                     target="_blank"
-                     rel="noopener noreferrer"
-                     className="ml-2 text-sm text-indigo-500
-                     dark:text-indigo-400 hover:underline
-                     "
-                     >
-                       PDF File
-                       </a>
-                   </div>
-                )}
-            {!fileUrl && !isEditing && (
-                <p className={cn(
-                    "text-sm text-zinc-600 dark:text-zinc-300",
-                    deleted && "italic text-zinc-500 dark:text-zinc-400 text-xs mt-1"
-                )}>
-                    {content}
-                    {isUpdated && !deleted && (
-                        <span className="text-[10px] mx-2 text-zinc-500 dark:text-zinc-400">
-                            (edited)
-                        </span>
-                    )} 
-                </p>
-            )}
-            {!fileUrl && isEditing && (
-                <Form {...form}>
-                    <form 
-                    className="flex items-center w-full gap-x-2 pt-2"
-                    onSubmit={form.handleSubmit(onSubmit)}>
-                        <FormField
-                        control={form.control}
-                        name="content"
-                        render={({field}) => (
-                            <FormItem className="flex-1">
-                                <FormControl>
-                                    <div className="relative w-full">
-                                        <Input
-                                        disabled={isLoading}
-                                        className="p-2 bg-zinc-200/90 
-                                        dark:bg-zinc-700/75 border-none border-0
-                                        focus-visible:ring-0 focus-visible:ring-offset-0 text-zinc-600 dark:text-zinc-200
-                                        "
-                                        placeholder="Edited message"
-                                        {...field}
-                                        />
-                                    </div>
-                                </FormControl>
-                            </FormItem>
-                        )}
-                        />
-                       <Button disabled={isLoading} size="sm" variant="primary">
-                        Save
-                        </Button> 
-                    </form>
-                    <span className="text-[10px] mt-1 text-zinc-400 ">
-                        Press escape to cancel, enter to save.
-                    </span>
-                </Form>
-            )}
-            </div>
-            {canDeleteMessage && (
-                <div className="hidden group-hover:flex items-center
-                gap-x-2 absolute p-1 -top-2 right-5 bg-white dark:bg-zinc-800 border rounded-sm
-                ">
-                    {canEditMessage && (
-                        <ActionTooltip label="Edit">
-                            <Edit
-                            onClick={() => setIsEditing(true)}
-                            className="cursor-pointer ml-auto w-4 h-4 text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition"
-                            />
-                        </ActionTooltip>
-                    )}
-                     <ActionTooltip label="Delete">
-                            <Trash
-                            onClick={() => onOpen("deleteMessage", {
-                                apiUrl: `${socketUrl}/${id}`,
-                                query: socketQuery,
-                            })}
-                            className="cursor-pointer ml-auto w-4 h-4 text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition"
-                            />
-                        </ActionTooltip>
-                </div>
-            )}
+      <div className="group flex gap-x-2 items-start w-full">
+        <div className="cursor-pointer">
+          <UserAvatar src={member.profile.imageUrl ?? undefined} />
         </div>
+        <div className="flex flex-col w-full">
+          <div className="flex items-center gap-x-2">
+            <p className="font-semibold text-sm">
+              {member.profile.name}
+            </p>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              {timestamp}
+            </span>
+          </div>
+          
+          {/* Display message with preserved line breaks */}
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
+            {formatMessageContent(content)}
+            {isUpdated && !deleted && (
+              <span className="text-[10px] mx-2 text-zinc-500 dark:text-zinc-400">
+                (edited)
+              </span>
+            )}
+          </p>
+
+          {/* Emoji Reactions Section */}
+          <div className="mt-2 flex items-center space-x-2">
+            {/* Display grouped reactions */}
+            {reactions.map((reaction, index) => (
+              <div 
+                key={index} 
+                className="flex items-center bg-gray-100 rounded-full px-2 py-1 text-sm cursor-pointer hover:bg-gray-200"
+                onClick={() => handleReaction(reaction.emoji)}
+              >
+                <span className="mr-1 text-lg">{reaction.emoji}</span>
+                <span className="text-xs text-gray-600">{reaction.users.length}</span>
+              </div>
+            ))}
+
+            {/* Emoji Picker appears on hover */}
+            <div className="group-hover:block hidden">
+              <EmojiPicker
+                onChange={(emoji: string) => handleReaction(emoji)}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-  )
-}
+  );
+};
 
 export default ChatItem;
